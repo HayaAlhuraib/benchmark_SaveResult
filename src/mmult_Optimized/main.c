@@ -17,7 +17,6 @@
 #include <sys/types.h>
 
 /* Include all implementations declarations */
-#include "impl/ref.h"
 #include "impl/naive.h"
 #include "impl/opt.h"
 #include "impl/vec.h"
@@ -31,7 +30,6 @@
 #include "include/types.h"
 
 /* Default values */
-const int SIZE_DATA = 4 * 1024 * 1024;
 int num_runs = 10000;
 int nstdevs = 3;
 
@@ -90,7 +88,6 @@ int main(int argc, char** argv) {
     /* Arguments */
     int nthreads = 1;
     int cpu = 0;
-    int data_size = SIZE_DATA;
     void* (*impl)(void* args) = NULL;
     const char* impl_str = NULL;
     bool run_both = false;
@@ -133,39 +130,18 @@ int main(int argc, char** argv) {
             continue;
         }
 
-        if (strcmp(argv[i], "-s") == 0 || strcmp(argv[i], "--size") == 0) {
-            assert(++i < argc);
-            data_size = atoi(argv[i]);
-            continue;
-        }
-
-        if (strcmp(argv[i], "--nruns") == 0) {
-            assert(++i < argc);
-            num_runs = atoi(argv[i]);
-            continue;
-        }
-
-        if (strcmp(argv[i], "--nstdevs") == 0) {
-            assert(++i < argc);
-            nstdevs = atoi(argv[i]);
-            continue;
-        }
-
         if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
             help = true;
             break;
         }
     }
 
-    if (help || impl == NULL) {
+    if (help || (impl == NULL && !run_both)) {
         printf("Usage: %s -i {naive|opt|vec|para|both} [Options]\n", argv[0]);
         printf("\nOptions:\n");
         printf("  -h | --help       Print this message\n");
         printf("  -n | --nthreads   Set number of threads available (default = %d)\n", nthreads);
         printf("  -c | --cpu        Set the main CPU for the program (default = %d)\n", cpu);
-        printf("  -s | --size       Size of input and output data (default = %d)\n", data_size);
-        printf("     --nruns        Number of runs to the implementation (default = %d)\n", num_runs);
-        printf("     --nstdevs      Number of standard deviations to exclude outliers (default = %d)\n", nstdevs);
         exit(help ? 0 : 1);
     }
 
@@ -181,7 +157,6 @@ int main(int argc, char** argv) {
     printf("Enter the number of rows for Matrix B: ");
     scanf("%zu", &rows_B);
 
-    /* Ensure cols_A == rows_B */
     while (cols_A != rows_B) {
         printf("Number of columns for Matrix A must equal the number of rows for Matrix B.\n");
         printf("Enter the number of rows for Matrix B: ");
@@ -191,14 +166,60 @@ int main(int argc, char** argv) {
     printf("Enter the number of columns for Matrix B: ");
     scanf("%zu", &cols_B);
 
-    /* Print parsed values for verification */
-    printf("\nConfiguration:\n");
-    printf("  Implementation: %s\n", impl_str);
-    printf("  Number of Threads: %d\n", nthreads);
-    printf("  CPU: %d\n", cpu);
-    printf("  Data Size: %d\n", data_size);
-    printf("  Matrix A: %zux%zu\n", rows_A, cols_A);
-    printf("  Matrix B: %zux%zu\n", rows_B, cols_B);
+    /* Create the Result directory */
+    create_result_directory();
+
+    /* Allocate matrices */
+    size_t size_A = rows_A * cols_A;
+    size_t size_B = rows_B * cols_B;
+    size_t size_R = rows_A * cols_B;
+
+    float* A = malloc(size_A * sizeof(float));
+    float* B = malloc(size_B * sizeof(float));
+    float* R = malloc(size_R * sizeof(float));
+
+    if (!A || !B || !R) {
+        fprintf(stderr, "Memory allocation failed.\n");
+        exit(1);
+    }
+
+    /* Initialize matrices with random values */
+    srand((unsigned int)time(NULL));
+    for (size_t i = 0; i < size_A; i++) {
+        A[i] = (float)(rand() % 10);
+    }
+    for (size_t i = 0; i < size_B; i++) {
+        B[i] = (float)(rand() % 10);
+    }
+
+    /* Print input matrices */
+    print_matrix("Matrix A", A, rows_A, cols_A);
+    print_matrix("Matrix B", B, rows_B, cols_B);
+
+    /* Perform the selected implementation(s) */
+    if (run_both) {
+        printf("Running naive implementation...\n");
+        args_t args_naive = { .input = A, .output = R, .size = rows_A };
+        clock_t start_naive = clock();
+        impl_scalar_naive(&args_naive);
+        clock_t end_naive = clock();
+        double naive_time = (double)(end_naive - start_naive) / CLOCKS_PER_SEC;
+        printf("Naive Implementation Runtime: %.6f seconds\n", naive_time);
+        print_matrix("Result Matrix R (Naive)", R, rows_A, cols_B);
+    } else {
+        args_t args = { .input = A, .output = R, .size = rows_A };
+        clock_t start = clock();
+        impl(&args);
+        clock_t end = clock();
+        double runtime = (double)(end - start) / CLOCKS_PER_SEC;
+        printf("%s Implementation Runtime: %.6f seconds\n", impl_str, runtime);
+        print_matrix("Result Matrix R", R, rows_A, cols_B);
+    }
+
+    /* Free allocated memory */
+    free(A);
+    free(B);
+    free(R);
 
     return 0;
 }
